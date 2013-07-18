@@ -595,9 +595,11 @@ static void setup_unclaimed_hunks_from_linemap(git_blame *blame)
 	blame_hunk *hunk;
 
 	git_vector_foreach(&blame->unclaimed_hunks, i, hunk) {
-		khiter_t k = kh_get(line, hunk->linemap, blame->current_commit);
-		if (k != kh_end(hunk->linemap))
+		khiter_t k = kh_get_line(hunk->linemap, blame->current_commit);
+		if (k != kh_end(hunk->linemap)) {
 			hunk->orig_start_line_number = kh_val(hunk->linemap, k);
+			kh_del_line(hunk->linemap, k);
+		}
 	}
 }
 
@@ -616,8 +618,6 @@ static int process_patch(git_diff_patch *patch, git_blame *blame)
 	int error = 0;
 	size_t i, num_hunks = git_diff_patch_num_hunks(patch);
 	const git_diff_delta *delta = git_diff_patch_delta(patch);
-
-	setup_unclaimed_hunks_from_linemap(blame);
 
 	for (i=0; i<num_hunks; ++i) {
 		const git_diff_range *range;
@@ -718,6 +718,7 @@ static int walk_and_mark(git_blame *blame, git_revwalk *walk)
 		git_diff_find_options diff_find_opts = GIT_DIFF_FIND_OPTIONS_INIT;
 
 		DEBUGF("Rev %s\n", oidstr(&oid));
+		setup_unclaimed_hunks_from_linemap(blame);
 
 		git_oid_cpy(&blame->current_commit, &oid);
 		if ((error = git_commit_lookup(&commit, blame->repository, &oid)) < 0)
