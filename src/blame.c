@@ -703,6 +703,12 @@ static int process_diff(git_diff_list *diff, git_blame *blame)
 	return error;
 }
 
+static void process_merge_commit(git_blame *blame, git_commit *commit)
+{
+	GIT_UNUSED(blame);
+	GIT_UNUSED(commit);
+}
+
 static int walk_and_mark(git_blame *blame, git_revwalk *walk)
 {
 	git_oid oid;
@@ -726,6 +732,7 @@ static int walk_and_mark(git_blame *blame, git_revwalk *walk)
 
 		/* TODO: consider merge commits */
 		if (git_commit_parentcount(commit) > 1) {
+			process_merge_commit(blame, commit);
 			continue;
 		}
 
