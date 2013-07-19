@@ -12,6 +12,7 @@
 #include "git2/tree.h"
 #include "git2/diff.h"
 #include "git2/blob.h"
+#include "git2/merge.h"
 #include "util.h"
 #include "repository.h"
 
@@ -703,6 +704,29 @@ static int process_diff(git_diff_list *diff, git_blame *blame)
 	return error;
 }
 
+static git_diff_list* diff_commit_to_commit(
+		git_repository *repo,
+		git_commit *a,
+		git_commit *b,
+		git_diff_options *opts)
+{
+	git_diff_list *out = NULL;
+	git_tree *ta = NULL, *tb = NULL;
+
+	if (!a || !b || !repo) return NULL;
+
+	if ((git_commit_tree(&ta, a)) < 0 ||
+	    (git_commit_tree(&tb, b)) < 0)
+		goto cleanup;
+
+	git_diff_tree_to_tree(&out, repo, ta, tb, opts);
+
+cleanup:
+	git_tree_free(ta);
+	git_tree_free(tb);
+	return out;
+}
+
 static void process_merge_commit(git_blame *blame, git_commit *commit)
 {
 	GIT_UNUSED(blame);
@@ -730,25 +754,19 @@ static int walk_and_mark(git_blame *blame, git_revwalk *walk)
 		if ((error = git_commit_lookup(&commit, blame->repository, &oid)) < 0)
 			break;
 
-		/* TODO: consider merge commits */
 		if (git_commit_parentcount(commit) > 1) {
 			process_merge_commit(blame, commit);
 			continue;
 		}
 
-		error = git_commit_parent(&parent, commit, 0);
-		if (error != 0 && error != GIT_ENOTFOUND)
+		if (git_commit_parentcount(commit) == 0 ||
+		    ((error = git_commit_parent(&parent, commit, 0) != 0) &&
+		     error != GIT_ENOTFOUND))
 			goto cleanup;
 
 		if (parent)
 			git_oid_cpy(&blame->parent_commit, git_commit_id(parent));
 		if (!parent) git__memzero(&blame->parent_commit, sizeof(git_oid));
-
-		/* Get the trees from this commit and its parent */
-		if ((error = git_commit_tree(&committree, commit)) < 0)
-			goto cleanup;
-		if (parent && ((error = git_commit_tree(&parenttree, parent)) < 0))
-			goto cleanup;
 
 		/* Configure the diff */
 		diffopts.context_lines = 0;
@@ -756,14 +774,14 @@ static int walk_and_mark(git_blame *blame, git_revwalk *walk)
 		/* Check to see if files we're interested in have changed */
 		diffopts.pathspec.count = blame->paths.length;
 		diffopts.pathspec.strings = (char**)blame->paths.contents;
-		if ((error = git_diff_tree_to_tree(&diff, blame->repository, parenttree, committree, &diffopts)) < 0)
+		if (!(diff = diff_commit_to_commit(blame->repository, parent, commit, &diffopts)))
 			goto cleanup;
 
 		/* Generate a full diff between the two trees */
 		if (git_diff_num_deltas(diff) > 0) {
 			git_diff_list_free(diff);
 			diffopts.pathspec.count = 0;
-			if ((error = git_diff_tree_to_tree(&diff, blame->repository, parenttree, committree, &diffopts)) < 0)
+			if (!(diff = diff_commit_to_commit(blame->repository, parent, commit, &diffopts)))
 				goto cleanup;
 		}
 
