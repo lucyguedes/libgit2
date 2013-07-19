@@ -729,8 +729,18 @@ cleanup:
 
 static void process_merge_commit(git_blame *blame, git_commit *commit)
 {
+	size_t i, parentcount = git_commit_parentcount(commit);
 	GIT_UNUSED(blame);
-	GIT_UNUSED(commit);
+
+	for (i=0; i<parentcount; ++i) {
+		/* For each parent, add together these diffs:
+		 * - from the merge base to the parent (cumulative change for this parent)
+		 * - from the commit to the parent
+		 * Add all those together, and a non-conflict merge commit should have an
+		 * empty diff. If it isn't empty, whatever is left is the conflict
+		 * resolution, which should be attributed to the merge commit.
+		 */
+	}
 }
 
 static int walk_and_mark(git_blame *blame, git_revwalk *walk)
