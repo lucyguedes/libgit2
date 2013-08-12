@@ -233,6 +233,43 @@ on_error:
 	return error;
 }
 
+/**
+ * Insert all tags until we find a non-tag object, which is returned
+ * in `out`.
+ */
+static int enqueue_tag(git_object **out, git_push *push, git_oid *id)
+{
+	git_tag *tag;
+	git_object *target;
+
+	if (git_tag_lookup(&tag, push->repo, id) < 0)
+		goto on_error;
+
+	do {
+
+		if (git_packbuilder_insert(push->pb, git_tag_id(tag), NULL) < 0)
+			goto on_error;
+
+		if (git_tag_target(&target, tag) < 0)
+			goto on_error;
+
+		if (git_object_type(target) != GIT_OBJ_TAG)
+			break;
+
+		git_tag_free(tag);
+		tag = (git_tag *) target;
+	} while (1);
+
+	git_tag_free(tag);
+	*out = target;
+	return 0;
+
+on_error:
+
+	git_tag_free(tag);
+	return -1;
+}
+
 static int revwalk(git_vector *commits, git_push *push)
 {
 	git_remote_head *head;
@@ -265,20 +302,10 @@ static int revwalk(git_vector *commits, git_push *push)
 			goto on_error;
 
 		if (type == GIT_OBJ_TAG) {
-			git_tag *tag;
 			git_object *target;
 
-			if (git_packbuilder_insert(push->pb, &spec->loid, NULL) < 0)
+			if (enqueue_tag(&target, push, &spec->loid) < 0)
 				goto on_error;
-
-			if (git_tag_lookup(&tag, push->repo, &spec->loid) < 0)
-				goto on_error;
-
-			if (git_tag_peel(&target, tag) < 0) {
-				git_tag_free(tag);
-				goto on_error;
-			}
-			git_tag_free(tag);
 
 			if (git_object_type(target) == GIT_OBJ_COMMIT) {
 				if (git_revwalk_push(rw, git_object_id(target)) < 0) {
